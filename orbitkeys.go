@@ -1,3 +1,6 @@
+// Package orbitkeys provides a comprehensive API key management system for Go applications
+// using the Fiber web framework. It includes functionality for API key generation, validation,
+// role-based authorization with fine-grained permissions, and middleware integration.
 package orbitkeys
 
 import (
@@ -15,13 +18,20 @@ import (
 	"github.com/BasementPilot/orbit-keys/internal/middleware"
 )
 
-// OrbitKeys represents the API key management system
+// OrbitKeys represents the API key management system with its configuration and web server.
+// It provides methods for initializing the system, setting up routes, and integrating with
+// existing applications.
 type OrbitKeys struct {
 	Config *config.Config
 	App    *fiber.App
 }
 
-// New creates a new instance of OrbitKeys
+// New creates and initializes a new OrbitKeys instance.
+// It loads configuration, sets up the database, creates default roles if needed,
+// and configures the Fiber web application with appropriate middleware and routes.
+// If no root API key is provided in the configuration, a new one will be generated.
+//
+// Returns the initialized OrbitKeys instance and any error encountered during setup.
 func New() (*OrbitKeys, error) {
 	// Load configuration
 	cfg := config.LoadConfig()
@@ -83,7 +93,9 @@ func New() (*OrbitKeys, error) {
 	return orbitKeys, nil
 }
 
-// setupRoutes sets up all the API routes
+// setupRoutes configures all API endpoints for the OrbitKeys system.
+// It creates route groups for admin operations and public endpoints,
+// and applies the appropriate middleware for each group.
 func (o *OrbitKeys) setupRoutes() {
 	baseURL := o.Config.BaseURL
 	if baseURL == "" {
@@ -123,17 +135,28 @@ func (o *OrbitKeys) setupRoutes() {
 	})
 }
 
-// GetMiddleware returns middleware for validating API keys with the required permission
+// GetMiddleware returns middleware for validating API keys with the required permission.
+// This middleware checks if the request contains a valid API key header, verifies the key
+// exists in the database, checks if it hasn't expired, and validates it has the required
+// permission.
+//
+// The permission parameter specifies the permission required to access the route.
+// If permission is empty, it only validates that the API key exists and hasn't expired.
 func (o *OrbitKeys) GetMiddleware(permission string) fiber.Handler {
 	return middleware.APIKeyAuth(permission)
 }
 
-// RequirePermission returns middleware to check if the authenticated API key has a specific permission
+// RequirePermission returns middleware to check if the authenticated API key has a specific permission.
+// This middleware should be used after the API key authentication middleware (GetMiddleware)
+// to perform additional permission checks.
+//
+// The permission parameter specifies the permission required to access the route.
 func (o *OrbitKeys) RequirePermission(permission string) fiber.Handler {
 	return middleware.RequirePermission(permission)
 }
 
-// generateRootAPIKey generates a new cryptographically secure root API key
+// generateRootAPIKey creates a new cryptographically secure root API key.
+// The key is prefixed with "orbitkey_root_" and uses URL-safe base64 encoding.
 func generateRootAPIKey() (string, error) {
 	bytes := make([]byte, 32)
 	_, err := rand.Read(bytes)
@@ -144,7 +167,9 @@ func generateRootAPIKey() (string, error) {
 	return "orbitkey_root_" + base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-// Close properly closes the OrbitKeys system
+// Close properly shuts down the OrbitKeys system, including the database connection.
+// This should be called when the application is shutting down to ensure all resources
+// are properly released.
 func (o *OrbitKeys) Close() {
 	database.CloseDB()
 } 

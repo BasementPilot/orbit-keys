@@ -1,3 +1,6 @@
+// Package handlers provides HTTP request handlers for the OrbitKeys API.
+// It contains implementations for all API endpoints, handling the request parsing,
+// validation, business logic, and response formatting.
 package handlers
 
 import (
@@ -6,20 +9,30 @@ import (
 	"github.com/BasementPilot/orbit-keys/internal/models"
 )
 
-// Role request and response structures
+// CreateRoleRequest defines the request structure for creating a new role.
+// It contains the required name, optional description, and a list of permissions.
 type CreateRoleRequest struct {
 	Name        string   `json:"name" validate:"required"`
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions" validate:"required"`
 }
 
+// UpdateRoleRequest defines the request structure for updating an existing role.
+// All fields are optional, as updates can be partial.
 type UpdateRoleRequest struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Permissions []string `json:"permissions"`
 }
 
-// CreateRole handles role creation
+// CreateRole handles role creation requests.
+// It validates the request body, ensures permissions are in the correct format,
+// and creates a new role in the database.
+//
+// Returns:
+// - 201 Created with the created role on success
+// - 400 Bad Request if the request body is invalid or contains invalid permissions
+// - 500 Internal Server Error if a database error occurs
 func CreateRole(c *fiber.Ctx) error {
 	// Parse request body
 	req := new(CreateRoleRequest)
@@ -69,7 +82,12 @@ func CreateRole(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(role)
 }
 
-// GetRoles handles retrieving all roles
+// GetRoles handles requests to retrieve all roles from the database.
+// It returns a JSON array of all roles with their associated data.
+//
+// Returns:
+// - 200 OK with an array of roles on success
+// - 500 Internal Server Error if a database error occurs
 func GetRoles(c *fiber.Ctx) error {
 	var roles []models.Role
 	db := database.GetDB()
@@ -84,7 +102,12 @@ func GetRoles(c *fiber.Ctx) error {
 	return c.JSON(roles)
 }
 
-// GetRole handles retrieving a single role by ID
+// GetRole handles requests to retrieve a single role by its ID.
+// The ID is extracted from the URL parameters.
+//
+// Returns:
+// - 200 OK with the requested role on success
+// - 404 Not Found if the role doesn't exist
 func GetRole(c *fiber.Ctx) error {
 	id := c.Params("id")
 	
@@ -101,7 +124,15 @@ func GetRole(c *fiber.Ctx) error {
 	return c.JSON(role)
 }
 
-// UpdateRole handles updating a role
+// UpdateRole handles requests to update an existing role.
+// It retrieves the role by ID, updates the provided fields,
+// and saves the changes to the database.
+//
+// Returns:
+// - 200 OK with the updated role on success
+// - 400 Bad Request if the request body is invalid or contains invalid permissions
+// - 404 Not Found if the role doesn't exist
+// - 500 Internal Server Error if a database error occurs
 func UpdateRole(c *fiber.Ctx) error {
 	id := c.Params("id")
 	
@@ -159,7 +190,14 @@ func UpdateRole(c *fiber.Ctx) error {
 	return c.JSON(role)
 }
 
-// DeleteRole handles deleting a role
+// DeleteRole handles requests to delete a role by its ID.
+// It first checks if any API keys are using this role, preventing
+// deletion if the role is in use to maintain data integrity.
+//
+// Returns:
+// - 204 No Content on successful deletion
+// - 400 Bad Request if the role is assigned to API keys
+// - 500 Internal Server Error if a database error occurs
 func DeleteRole(c *fiber.Ctx) error {
 	id := c.Params("id")
 	

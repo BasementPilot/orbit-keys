@@ -4,13 +4,18 @@ import (
 	"strings"
 )
 
-// Permission constants
+// Permission constants define special values used in the permission system.
 const (
+	// WildcardPermission represents a permission that grants access to all resources and actions.
 	WildcardPermission = "*"
+	
+	// PermissionSeparator separates the resource from the action in permission strings.
 	PermissionSeparator = ":"
 )
 
-// ParsePermissions converts a comma-separated permissions string to a slice
+// ParsePermissions converts a comma-separated permissions string to a slice of individual permission strings.
+// Each permission is trimmed of whitespace. An empty input string returns an empty slice.
+// This function is used to convert the database-stored permission format to a usable slice.
 func ParsePermissions(permissions string) []string {
 	if permissions == "" {
 		return []string{}
@@ -25,8 +30,13 @@ func ParsePermissions(permissions string) []string {
 	return perms
 }
 
-// CheckPermission checks if a required permission is included in the permissions slice
-// It supports wildcard permissions (*, resource:*)
+// CheckPermission determines if a required permission is included in the user's permission set.
+// It supports several permission matching patterns:
+// 1. Wildcard (*) grants access to everything
+// 2. Exact match between required and user permission
+// 3. Resource wildcard (resource:*) grants access to all actions on a specific resource
+//
+// Returns true if the permission is granted, false otherwise.
 func CheckPermission(requiredPermission string, userPermissions []string) bool {
 	// If user has wildcard permission, they have access to everything
 	for _, p := range userPermissions {
@@ -50,12 +60,14 @@ func CheckPermission(requiredPermission string, userPermissions []string) bool {
 	return false
 }
 
-// FormatPermission formats a permission string as "resource:action"
+// FormatPermission combines a resource name and action into a properly formatted permission string.
+// The resulting format is "resource:action".
 func FormatPermission(resource, action string) string {
 	return resource + PermissionSeparator + action
 }
 
-// contains checks if a string slice contains a specific string
+// contains checks if a string slice contains a specific string.
+// It's used internally for permission matching.
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -65,7 +77,13 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-// ValidatePermissionFormat validates that a permission is correctly formatted
+// ValidatePermissionFormat checks if a permission string follows the correct format.
+// Valid formats are:
+// - Wildcard (*) for all permissions
+// - "resource:action" where both resource and action are non-empty
+// - "resource:*" for all actions on a specific resource
+//
+// Returns true if the format is valid, false otherwise.
 func ValidatePermissionFormat(permission string) bool {
 	// Wildcard is valid
 	if permission == WildcardPermission {

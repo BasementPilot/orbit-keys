@@ -1,3 +1,6 @@
+// Package database handles database connections and operations for the OrbitKeys system.
+// It provides functions for initializing the SQLite database, running migrations,
+// and creating default data needed for the system to function properly.
 package database
 
 import (
@@ -13,10 +16,16 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// DB is the global database instance
+// DB is the global database instance used throughout the application.
+// It should be initialized with InitDB before use.
 var DB *gorm.DB
 
-// InitDB initializes the database connection
+// InitDB initializes the database connection and performs initial setup.
+// It creates the database file if it doesn't exist, sets up the connection
+// with appropriate logging, and runs necessary migrations.
+//
+// The cfg parameter provides database configuration, particularly the DBPath.
+// Returns an error if any part of the initialization process fails.
 func InitDB(cfg *config.Config) error {
 	dbPath := cfg.DBPath
 	if dbPath == "" {
@@ -59,12 +68,17 @@ func InitDB(cfg *config.Config) error {
 	return nil
 }
 
-// GetDB returns the database instance
+// GetDB returns the global database instance.
+// The database must be initialized with InitDB before calling this function.
 func GetDB() *gorm.DB {
 	return DB
 }
 
-// CreateDefaultAdminRole creates a default admin role if it doesn't exist
+// CreateDefaultAdminRole ensures that an admin role with full permissions exists in the database.
+// If the admin role already exists, this function does nothing.
+// If it doesn't exist, it creates a new role with the name "admin" and wildcard (*) permission.
+//
+// Returns an error if database operations fail.
 func CreateDefaultAdminRole() error {
 	var count int64
 	if err := DB.Model(&models.Role{}).Where("name = ?", "admin").Count(&count).Error; err != nil {
@@ -87,7 +101,9 @@ func CreateDefaultAdminRole() error {
 	return nil
 }
 
-// CloseDB closes the database connection
+// CloseDB properly closes the database connection when the application exits.
+// This should be called as part of shutdown procedures to ensure all database
+// operations are completed and resources are released.
 func CloseDB() {
 	if DB != nil {
 		sqlDB, err := DB.DB()
