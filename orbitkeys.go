@@ -1,12 +1,11 @@
-// Package orbitkeys provides a comprehensive API key management system for Go applications
-// using the Fiber web framework. It includes functionality for API key generation, validation,
-// role-based authorization with fine-grained permissions, and middleware integration.
+// Package orbitkeys provides API key management functionality for applications.
+// It offers secure generation, validation, and permission-based authorization
+// of API keys through a REST API and programmatic interfaces.
 package orbitkeys
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -16,62 +15,84 @@ import (
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/handlers"
 	"github.com/BasementPilot/orbit-keys/internal/middleware"
+	"github.com/BasementPilot/orbit-keys/utils"
 )
 
-// OrbitKeys represents the API key management system with its configuration and web server.
-// It provides methods for initializing the system, setting up routes, and integrating with
-// existing applications.
+// OrbitKeys represents the API key management service.
+// It contains the configuration and manages the lifecycle of the service.
 type OrbitKeys struct {
 	Config *config.Config
-	App    *fiber.App
+	app    *fiber.App
 }
 
-// New creates and initializes a new OrbitKeys instance.
-// It loads configuration, sets up the database, creates default roles if needed,
-// and configures the Fiber web application with appropriate middleware and routes.
-// If no root API key is provided in the configuration, a new one will be generated.
-//
-// Returns the initialized OrbitKeys instance and any error encountered during setup.
-func New() (*OrbitKeys, error) {
-	// Load configuration
-	cfg := config.LoadConfig()
-
-	// Generate root API key if none is provided
-	if cfg.RootAPIKey == "" {
-		key, err := generateRootAPIKey()
+// New creates a new instance of the OrbitKeys service with the provided configuration.
+// If no configuration is provided, default values will be used.
+// It initializes the service but does not start the server.
+func New(cfg *config.Config) (*OrbitKeys, error) {
+	// If no config provided, load default
+	var err error
+	if cfg == nil {
+		cfg, err = config.LoadConfig()
 		if err != nil {
 			return nil, err
 		}
-		cfg.RootAPIKey = key
+	}
+
+	// Validate configuration
+	if !config.ValidateConfig(cfg) {
+		// Generate root API key if not provided
+		rootKey, err := utils.GenerateAPIKey(utils.DefaultKeyLength)
+		if err != nil {
+			return nil, err
+		}
 		
+		cfg.RootAPIKey = rootKey
+		log.Printf("Generated new root API key: %s", rootKey)
+		
+		// Save configuration
 		if err := config.SaveConfig(cfg); err != nil {
-			log.Printf("Warning: Failed to save root API key to .env file: %v", err)
-		} else {
-			log.Printf("Generated new root API key: %s", key)
-			log.Println("This key has been saved to the .env file")
+			log.Printf("Warning: Failed to save configuration: %v", err)
 		}
 	}
 
+	return &OrbitKeys{
+		Config: cfg,
+	}, nil
+}
+
+// Init initializes the OrbitKeys service components including the database and API routes.
+// It must be called before Start().
+func (o *OrbitKeys) Init() error {
 	// Initialize database
-	if err := database.InitDB(cfg); err != nil {
-		return nil, err
+	if err := database.InitDB(o.Config); err != nil {
+		return err
 	}
 
-	// Create default admin role
+	// Create default admin role if it doesn't exist
 	if err := database.CreateDefaultAdminRole(); err != nil {
-		return nil, err
+		return err
 	}
 
-	// Create Fiber app
+	// Create Fiber app with middleware
 	app := fiber.New(fiber.Config{
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+		// Explicitly set ErrorHandler to customize error responses
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
 			}
-
+			
+			// Don't expose internal error details in production
+			errMsg := "Internal Server Error"
+			if code != fiber.StatusInternalServerError {
+				errMsg = err.Error()
+			}
+			
 			return c.Status(code).JSON(fiber.Map{
-				"error": err.Error(),
+				"error": errMsg,
 			})
 		},
 	})
@@ -80,96 +101,73 @@ func New() (*OrbitKeys, error) {
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New())
+	
+	// Add rate limiting for all routes
+	app.Use(middleware.CreateRateLimiter(100, 1*time.Minute))
 
-	// Create OrbitKeys instance
-	orbitKeys := &OrbitKeys{
-		Config: cfg,
-		App:    app,
-	}
+	// Setup API routes
+	apiGroup := app.Group(o.Config.BaseURL)
 
-	// Setup routes
-	orbitKeys.setupRoutes()
+	// Public endpoints (authenticated with root API key)
+	publicGroup := apiGroup.Group("")
+	publicGroup.Use(middleware.RootAPIKeyAuth(o.Config))
+	
+	// Add additional rate limiting for authentication endpoints
+	authRateLimiter := middleware.CreateRateLimiter(30, 5*time.Minute)
+	publicGroup.Use(authRateLimiter)
 
-	return orbitKeys, nil
+	// API key lookup and validation endpoints
+	publicGroup.Get("/lookup", handlers.LookupAPIKey)
+	publicGroup.Get("/validate", handlers.ValidateAPIKeyPermission)
+
+	// Role management endpoints
+	roleGroup := apiGroup.Group("/roles")
+	roleGroup.Use(middleware.APIKeyAuth("roles:read"))
+	roleGroup.Get("/", handlers.GetRoles)
+	roleGroup.Get("/:id", handlers.GetRole)
+	
+	// Protected by stronger permissions
+	roleGroup.Post("/", middleware.RequirePermission("roles:create"), handlers.CreateRole)
+	roleGroup.Put("/:id", middleware.RequirePermission("roles:update"), handlers.UpdateRole)
+	roleGroup.Delete("/:id", middleware.RequirePermission("roles:delete"), handlers.DeleteRole)
+
+	// API key management endpoints
+	keyGroup := apiGroup.Group("/keys")
+	keyGroup.Use(middleware.APIKeyAuth("keys:read"))
+	keyGroup.Get("/", handlers.GetAPIKeys)
+	keyGroup.Get("/:id", handlers.GetAPIKey)
+	
+	// Protected by stronger permissions
+	keyGroup.Post("/", middleware.RequirePermission("keys:create"), handlers.CreateAPIKey)
+	keyGroup.Put("/:id/expiration", middleware.RequirePermission("keys:update"), handlers.UpdateAPIKeyExpiration)
+	keyGroup.Delete("/:id", middleware.RequirePermission("keys:delete"), handlers.DeleteAPIKey)
+
+	o.app = app
+	return nil
 }
 
-// setupRoutes configures all API endpoints for the OrbitKeys system.
-// It creates route groups for admin operations and public endpoints,
-// and applies the appropriate middleware for each group.
-func (o *OrbitKeys) setupRoutes() {
-	baseURL := o.Config.BaseURL
-	if baseURL == "" {
-		baseURL = "/api"
-	}
-
-	// API Group
-	api := o.App.Group(baseURL)
-
-	// Admin routes - protected by root API key
-	admin := api.Group("/admin")
-	admin.Use(middleware.RootAPIKeyAuth(o.Config))
-
-	// API Key Management
-	admin.Post("/api-keys", handlers.CreateAPIKey)
-	admin.Get("/api-keys", handlers.GetAPIKeys)
-	admin.Get("/api-keys/:id", handlers.GetAPIKey)
-	admin.Delete("/api-keys/:id", handlers.DeleteAPIKey)
-	admin.Patch("/api-keys/:id/expiration", handlers.UpdateAPIKeyExpiration)
-
-	// Role Management
-	admin.Post("/roles", handlers.CreateRole)
-	admin.Get("/roles", handlers.GetRoles)
-	admin.Get("/roles/:id", handlers.GetRole)
-	admin.Put("/roles/:id", handlers.UpdateRole)
-	admin.Delete("/roles/:id", handlers.DeleteRole)
-
-	// Utility API key endpoints - protected by root API key
-	admin.Get("/lookup-key", handlers.LookupAPIKey)
-	admin.Get("/validate-permission", handlers.ValidateAPIKeyPermission)
-
-	// Public API health check
-	api.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"status": "ok",
-		})
-	})
-}
-
-// GetMiddleware returns middleware for validating API keys with the required permission.
-// This middleware checks if the request contains a valid API key header, verifies the key
-// exists in the database, checks if it hasn't expired, and validates it has the required
-// permission.
-//
-// The permission parameter specifies the permission required to access the route.
-// If permission is empty, it only validates that the API key exists and hasn't expired.
-func (o *OrbitKeys) GetMiddleware(permission string) fiber.Handler {
-	return middleware.APIKeyAuth(permission)
-}
-
-// RequirePermission returns middleware to check if the authenticated API key has a specific permission.
-// This middleware should be used after the API key authentication middleware (GetMiddleware)
-// to perform additional permission checks.
-//
-// The permission parameter specifies the permission required to access the route.
-func (o *OrbitKeys) RequirePermission(permission string) fiber.Handler {
-	return middleware.RequirePermission(permission)
-}
-
-// generateRootAPIKey creates a new cryptographically secure root API key.
-// The key is prefixed with "orbitkey_root_" and uses URL-safe base64 encoding.
-func generateRootAPIKey() (string, error) {
-	bytes := make([]byte, 32)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
+// Start runs the HTTP server and starts accepting requests.
+// Init() must be called before this method.
+func (o *OrbitKeys) Start(address string) error {
+	if o.app == nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Server not initialized. Call Init() first")
 	}
 	
-	return "orbitkey_root_" + base64.URLEncoding.EncodeToString(bytes), nil
+	log.Printf("OrbitKeys service starting on %s", address)
+	log.Printf("Root API Key: %s", o.Config.RootAPIKey)
+	return o.app.Listen(address)
 }
 
-// Close properly shuts down the OrbitKeys system, including the database connection.
-// This should be called when the application is shutting down to ensure all resources
-// are properly released.
-func (o *OrbitKeys) Close() {
+// Shutdown gracefully stops the server and closes database connections.
+func (o *OrbitKeys) Shutdown() error {
+	if o.app != nil {
+		if err := o.app.Shutdown(); err != nil {
+			return err
+		}
+	}
+	
 	database.CloseDB()
+	log.Println("OrbitKeys service shutdown complete")
+	return nil
+} 
 } 
