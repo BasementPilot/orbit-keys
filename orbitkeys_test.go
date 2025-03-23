@@ -1,8 +1,6 @@
 package orbitkeys
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/BasementPilot/orbit-keys/config"
@@ -67,15 +65,6 @@ func TestInit(t *testing.T) {
 func TestStartAndShutdown(t *testing.T) {
 	// Skip tests that require database connectivity
 	t.Skip("Skipping tests that require database connectivity")
-}
-
-// Helper function to create an HTTP test request
-func createTestRequest(method, path string, key string) *http.Request {
-	req := httptest.NewRequest(method, path, nil)
-	if key != "" {
-		req.Header.Set("X-API-Key", key)
-	}
-	return req
 }
 
 // Placeholder for future integration tests of API endpoints

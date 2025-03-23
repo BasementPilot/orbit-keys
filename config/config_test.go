@@ -251,7 +251,11 @@ func TestSaveConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to rename existing .env file: %v", err)
 			}
-			defer os.Rename(".env.backup", ".env")
+			defer func() {
+				if err := os.Rename(".env.backup", ".env"); err != nil {
+					t.Fatalf("Failed to restore .env file: %v", err)
+				}
+			}()
 		}
 
 		// Delete temporary files if they exist

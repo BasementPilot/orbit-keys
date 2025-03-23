@@ -4,6 +4,8 @@
 package middleware
 
 import (
+	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/models"
 	"github.com/BasementPilot/orbit-keys/utils"
+	"gorm.io/gorm"
 )
 
 // APIKeyHeader defines the HTTP header name used for API key authentication.
@@ -94,9 +97,11 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 				trackFailedAttempt(ip)
 				
 				// Use generic error message to avoid information disclosure
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				if jsonErr := c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 					"error": "Authentication failed",
-				})
+				}); jsonErr != nil {
+					log.Printf("Error sending JSON response: %v", jsonErr)
+				}
 				done <- true
 				return
 			}
@@ -128,7 +133,11 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 			}
 
 			// Update the last used timestamp
-			go key.UpdateLastUsed(db)
+			go func(db *gorm.DB, key *models.APIKey) {
+				if err := key.UpdateLastUsed(db); err != nil {
+					log.Printf("Failed to update LastUsed timestamp: %v", err)
+				}
+			}(db, &key)
 
 			// Store API key and role information in context for later use
 			c.Locals("apiKey", key)
@@ -244,7 +253,7 @@ func RequirePermission(permission string) fiber.Handler {
 		// Check if the role has the required permission
 		if !role.HasPermission(permission) {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-				"error": "Insufficient permissions",
+				"error": fmt.Sprintf("API key does not have the required permission: %s", permission),
 			})
 		}
 

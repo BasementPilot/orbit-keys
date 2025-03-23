@@ -1,15 +1,13 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/BasementPilot/orbit-keys/config"
-	"gorm.io/gorm"
+	"github.com/gofiber/fiber/v2"
 )
 
 func setupTestApp() (*fiber.App, error) {
@@ -194,11 +192,4 @@ func TestCreateRateLimiter(t *testing.T) {
 	if resp.StatusCode != fiber.StatusTooManyRequests {
 		t.Errorf("Expected status code %d for third request, got %d", fiber.StatusTooManyRequests, resp.StatusCode)
 	}
-}
-
-// Helper function to mock database connections and models for more comprehensive testing
-func setupTestDB() (*gorm.DB, error) {
-	// This would typically set up an in-memory SQLite database for testing
-	// But we'll skip the implementation for this example
-	return nil, fmt.Errorf("test database setup not implemented")
 } 

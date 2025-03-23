@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"strconv"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/models"
 	"github.com/BasementPilot/orbit-keys/utils"
+	"gorm.io/gorm"
 )
 
 // CreateAPIKeyRequest defines the request structure for creating a new API key.
@@ -186,7 +188,12 @@ func LookupAPIKey(c *fiber.Ctx) error {
 	}
 
 	// Update last used timestamp
-	go apiKey.UpdateLastUsed(db)
+	go func(db *gorm.DB, apiKey *models.APIKey) {
+		if err := apiKey.UpdateLastUsed(db); err != nil {
+			// Log the error but don't block the request
+			log.Printf("Failed to update LastUsed timestamp: %v", err)
+		}
+	}(db, &apiKey)
 
 	return c.JSON(apiKey)
 }
@@ -232,7 +239,12 @@ func ValidateAPIKeyPermission(c *fiber.Ctx) error {
 	hasPermission := apiKey.Role.HasPermission(permission)
 	
 	// Update last used timestamp
-	go apiKey.UpdateLastUsed(db)
+	go func(db *gorm.DB, apiKey *models.APIKey) {
+		if err := apiKey.UpdateLastUsed(db); err != nil {
+			// Log the error but don't block the request
+			log.Printf("Failed to update LastUsed timestamp: %v", err)
+		}
+	}(db, &apiKey)
 
 	return c.JSON(fiber.Map{
 		"has_permission": hasPermission,
