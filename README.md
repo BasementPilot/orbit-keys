@@ -23,6 +23,7 @@ OrbitKeys is simply an attempt to share a solution to these common challenges. I
   - Assign roles with specific permissions to API keys
   - Set expiration dates for API keys
   - Track when keys were last used
+  - Store custom metadata with API keys (e.g., user ID, client info)
 
 - **Role-Based Permissions**
   - Create roles with specific permission sets
@@ -231,7 +232,19 @@ curl -X POST http://localhost:3000/api/keys \
   -d '{
     "role_id": 1,
     "description": "API key for Example App",
-    "expires_in": 30
+    "expires_in": 30,
+    "custom_data": "{\"user_id\": 123, \"application\": \"mobile-app\"}"
+  }'
+```
+
+### Updating API Key Custom Data
+
+```bash
+curl -X PUT http://localhost:3000/api/keys/1/custom-data \
+  -H "X-API-Key: orbitkey_your_api_key_with_keys_update_permission" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "custom_data": "{\"user_id\": 123, \"application\": \"mobile-app\", \"version\": \"2.0\"}"
   }'
 ```
 

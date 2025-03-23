@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/models"
 	"github.com/BasementPilot/orbit-keys/utils"
+	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
@@ -18,7 +18,8 @@ import (
 type CreateAPIKeyRequest struct {
 	RoleID      uint   `json:"role_id" validate:"required"`
 	Description string `json:"description"`
-	ExpiresIn   *int   `json:"expires_in"` // Expiration in days, nil means no expiration
+	ExpiresIn   *int   `json:"expires_in"`  // Expiration in days, nil means no expiration
+	CustomData  string `json:"custom_data"` // Optional JSON string for storing custom metadata
 }
 
 // CreateAPIKey handles requests to create a new API key.
@@ -62,7 +63,7 @@ func CreateAPIKey(c *fiber.Ctx) error {
 	}
 
 	// Create API key
-	apiKey, err := utils.CreateAPIKey(req.RoleID, req.Description, expiresIn)
+	apiKey, err := utils.CreateAPIKey(req.RoleID, req.Description, req.CustomData, expiresIn)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to generate API key",
@@ -88,7 +89,7 @@ func CreateAPIKey(c *fiber.Ctx) error {
 func GetAPIKeys(c *fiber.Ctx) error {
 	var apiKeys []models.APIKey
 	db := database.GetDB()
-	
+
 	// Get all API keys with their roles
 	if err := db.Preload("Role").Find(&apiKeys).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -107,10 +108,10 @@ func GetAPIKeys(c *fiber.Ctx) error {
 // - 404 Not Found if the API key doesn't exist
 func GetAPIKey(c *fiber.Ctx) error {
 	id := c.Params("id")
-	
+
 	var apiKey models.APIKey
 	db := database.GetDB()
-	
+
 	// Find API key by ID with its role
 	if err := db.Preload("Role").Where("id = ?", id).First(&apiKey).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -130,9 +131,9 @@ func GetAPIKey(c *fiber.Ctx) error {
 // - 500 Internal Server Error if a database error occurs
 func DeleteAPIKey(c *fiber.Ctx) error {
 	id := c.Params("id")
-	
+
 	db := database.GetDB()
-	
+
 	// Find API key by ID to ensure it exists
 	var apiKey models.APIKey
 	if err := db.First(&apiKey, id).Error; err != nil {
@@ -171,7 +172,7 @@ func LookupAPIKey(c *fiber.Ctx) error {
 
 	var apiKey models.APIKey
 	db := database.GetDB()
-	
+
 	// Find API key by key value with its role
 	if err := db.Preload("Role").Where("key = ?", key).First(&apiKey).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -211,7 +212,7 @@ func ValidateAPIKeyPermission(c *fiber.Ctx) error {
 	// This endpoint is for internal use only, protected by the root API key
 	key := c.Query("key")
 	permission := c.Query("permission")
-	
+
 	if key == "" || permission == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Key and permission parameters are required",
@@ -220,7 +221,7 @@ func ValidateAPIKeyPermission(c *fiber.Ctx) error {
 
 	var apiKey models.APIKey
 	db := database.GetDB()
-	
+
 	// Find API key by key value with its role
 	if err := db.Preload("Role").Where("key = ?", key).First(&apiKey).Error; err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -237,7 +238,7 @@ func ValidateAPIKeyPermission(c *fiber.Ctx) error {
 
 	// Check if the key has the required permission
 	hasPermission := apiKey.Role.HasPermission(permission)
-	
+
 	// Update last used timestamp
 	go func(db *gorm.DB, apiKey *models.APIKey) {
 		if err := apiKey.UpdateLastUsed(db); err != nil {
@@ -251,12 +252,13 @@ func ValidateAPIKeyPermission(c *fiber.Ctx) error {
 	})
 }
 
-// UpdateAPIKeyExpiration updates the expiration date of an existing API key.
-// It can set a new expiration, remove the expiration, or expire the key immediately.
+// UpdateAPIKeyExpiration handles requests to update the expiration time of an API key.
+// The API key ID is extracted from the URL parameters, and the new expiration
+// time is specified in the request body.
 //
 // Returns:
 // - 200 OK with the updated API key on success
-// - 400 Bad Request if the ID is invalid or the request body is malformed
+// - 400 Bad Request if the request body is invalid
 // - 404 Not Found if the API key doesn't exist
 // - 500 Internal Server Error if a database error occurs
 func UpdateAPIKeyExpiration(c *fiber.Ctx) error {
@@ -266,12 +268,12 @@ func UpdateAPIKeyExpiration(c *fiber.Ctx) error {
 			"error": "Invalid API key ID",
 		})
 	}
-	
+
 	// Parse request body
 	type ExpirationRequest struct {
 		ExpiresIn *int `json:"expires_in"` // Days from now, nil to remove expiration
 	}
-	
+
 	req := new(ExpirationRequest)
 	if err := c.BodyParser(req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -310,4 +312,51 @@ func UpdateAPIKeyExpiration(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(apiKey)
-} 
+}
+
+// CustomDataRequest defines the request structure for updating the custom data of an API key.
+type CustomDataRequest struct {
+	CustomData string `json:"custom_data"`
+}
+
+// UpdateAPIKeyCustomData handles requests to update the custom data of an API key.
+// The API key ID is extracted from the URL parameters, and the new custom data
+// is specified in the request body.
+//
+// Returns:
+// - 200 OK with the updated API key on success
+// - 400 Bad Request if the request body is invalid
+// - 404 Not Found if the API key doesn't exist
+// - 500 Internal Server Error if a database error occurs
+func UpdateAPIKeyCustomData(c *fiber.Ctx) error {
+	id := c.Params("id")
+
+	// Parse request
+	req := new(CustomDataRequest)
+	if err := c.BodyParser(req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Find API key
+	db := database.GetDB()
+	var apiKey models.APIKey
+	if err := db.First(&apiKey, id).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "API key not found",
+		})
+	}
+
+	// Update custom data
+	apiKey.CustomData = req.CustomData
+
+	// Save changes
+	if err := db.Save(&apiKey).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to update API key custom data",
+		})
+	}
+
+	return c.JSON(apiKey)
+}

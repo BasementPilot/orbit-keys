@@ -27,11 +27,11 @@ const (
 	// DefaultKeyLength specifies the default length of generated API keys in bytes.
 	// 32 bytes (256 bits) provides strong security against brute force attacks.
 	DefaultKeyLength = 32
-	
+
 	// MinKeyLength specifies the minimum acceptable length for API keys.
 	// This ensures a baseline of security for all keys in the system.
 	MinKeyLength = 16
-	
+
 	// KeyPrefix is the string prefix added to all API keys for identification.
 	// All valid API keys in the system will start with this prefix.
 	KeyPrefix = "orbitkey_"
@@ -51,22 +51,22 @@ func GenerateAPIKey(length int) (string, error) {
 	if length < MinKeyLength {
 		length = DefaultKeyLength
 	}
-	
+
 	bytes := make([]byte, length)
 	n, err := rand.Read(bytes)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrKeyGeneration, err)
 	}
-	
+
 	// Verify we got the expected number of random bytes
 	if n != length {
 		return "", fmt.Errorf("%w: requested %d bytes but got %d", ErrInvalidKeyLength, length, n)
 	}
-	
+
 	key := base64.URLEncoding.EncodeToString(bytes)
 	// Remove trailing = characters
 	key = strings.TrimRight(key, "=")
-	
+
 	return KeyPrefix + key, nil
 }
 
@@ -79,12 +79,12 @@ func ValidateAPIKey(key string) bool {
 	if key == "" {
 		return false
 	}
-	
+
 	// Check if key has the correct prefix
 	if !strings.HasPrefix(key, KeyPrefix) {
 		return false
 	}
-	
+
 	// Check if the key is of appropriate length
 	trimmedKey := strings.TrimPrefix(key, KeyPrefix)
 	return len(trimmedKey) >= MinTrimmedKeyLength
@@ -100,7 +100,7 @@ func IsRootAPIKey(key, rootKey string) bool {
 	if key == "" || rootKey == "" {
 		return false
 	}
-	
+
 	// Use constant-time comparison to prevent timing attacks
 	return subtle.ConstantTimeCompare([]byte(key), []byte(rootKey)) == 1
 }
@@ -111,41 +111,43 @@ func IsRootAPIKey(key, rootKey string) bool {
 // Parameters:
 //   - roleID: The ID of the role to associate with this key
 //   - description: A human-readable description of the key's purpose
+//   - customData: Optional JSON string for storing custom metadata like user IDs
 //   - expiresIn: Optional duration after which the key will expire (nil for no expiration)
 //
 // Returns the created APIKey model and any error encountered during creation.
-func CreateAPIKey(roleID uint, description string, expiresIn *time.Duration) (*models.APIKey, error) {
+func CreateAPIKey(roleID uint, description string, customData string, expiresIn *time.Duration) (*models.APIKey, error) {
 	if roleID == 0 {
 		return nil, errors.New("role ID cannot be zero")
 	}
-	
+
 	// Generate new API key
 	key, err := GenerateAPIKey(DefaultKeyLength)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate API key: %w", err)
 	}
-	
+
 	// Create new API key record
 	apiKey := &models.APIKey{
 		Key:         key,
 		RoleID:      roleID,
 		Description: description,
+		CustomData:  customData,
 		CreatedAt:   time.Now(),
 	}
-	
+
 	// Set expiration if provided
 	if expiresIn != nil && *expiresIn > 0 {
 		// Cap maximum expiration time to reasonable limit (e.g., 10 years)
 		maxDuration := 10 * 365 * 24 * time.Hour // 10 years
 		duration := *expiresIn
-		
+
 		if duration > maxDuration {
 			duration = maxDuration
 		}
-		
+
 		expiresAt := time.Now().Add(duration)
 		apiKey.ExpiresAt = &expiresAt
 	}
-	
+
 	return apiKey, nil
-} 
+}

@@ -4,6 +4,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -33,6 +35,7 @@ type APIKey struct {
 	RoleID      uint           `json:"role_id" gorm:"not null"`
 	Role        Role           `json:"role" gorm:"constraint:OnDelete:CASCADE;"`
 	Description string         `json:"description"`
+	CustomData  string         `json:"custom_data" gorm:"type:text"` // Stored as JSON string for custom metadata
 	CreatedAt   time.Time      `json:"created_at"`
 	LastUsedAt  *time.Time     `json:"last_used_at"`
 	ExpiresAt   *time.Time     `json:"expires_at"`
@@ -61,12 +64,12 @@ func (r *Role) AddPermission(permission string) {
 	if !ValidatePermissionFormat(permission) {
 		return
 	}
-	
+
 	currentPerms := r.GetPermissions()
 	if contains(currentPerms, permission) {
 		return // Already has this permission
 	}
-	
+
 	if r.Permissions == "" {
 		r.Permissions = permission
 	} else {
@@ -79,13 +82,13 @@ func (r *Role) AddPermission(permission string) {
 func (r *Role) RemovePermission(permission string) {
 	currentPerms := r.GetPermissions()
 	newPerms := make([]string, 0)
-	
+
 	for _, p := range currentPerms {
 		if p != permission {
 			newPerms = append(newPerms, p)
 		}
 	}
-	
+
 	r.Permissions = strings.Join(newPerms, ",")
 }
 
@@ -106,4 +109,39 @@ func (k *APIKey) UpdateLastUsed(db *gorm.DB) error {
 	now := time.Now()
 	k.LastUsedAt = &now
 	return db.Model(k).Update("last_used_at", now).Error
-} 
+}
+
+// GetCustomData retrieves the custom data associated with the API key as a map.
+// Returns a map of string keys to interface{} values if the custom data is valid JSON,
+// or nil if the custom data is empty or invalid.
+func (k *APIKey) GetCustomData() (map[string]interface{}, error) {
+	if k.CustomData == "" {
+		return nil, nil
+	}
+
+	var data map[string]interface{}
+	err := json.Unmarshal([]byte(k.CustomData), &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse custom data: %w", err)
+	}
+
+	return data, nil
+}
+
+// SetCustomData sets the custom data for the API key.
+// It takes a map of string keys to interface{} values and serializes it to JSON.
+// Returns an error if the data cannot be serialized to JSON.
+func (k *APIKey) SetCustomData(data map[string]interface{}) error {
+	if data == nil {
+		k.CustomData = ""
+		return nil
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to serialize custom data: %w", err)
+	}
+
+	k.CustomData = string(jsonData)
+	return nil
+}

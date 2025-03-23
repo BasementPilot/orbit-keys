@@ -7,15 +7,15 @@ import (
 	"log"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/BasementPilot/orbit-keys/config"
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/handlers"
 	"github.com/BasementPilot/orbit-keys/internal/middleware"
 	"github.com/BasementPilot/orbit-keys/utils"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 )
 
 // OrbitKeys represents the API key management service.
@@ -45,10 +45,10 @@ func New(cfg *config.Config) (*OrbitKeys, error) {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg.RootAPIKey = rootKey
 		log.Printf("Generated new root API key: %s", rootKey)
-		
+
 		// Save configuration
 		if err := config.SaveConfig(cfg); err != nil {
 			log.Printf("Warning: Failed to save configuration: %v", err)
@@ -84,13 +84,13 @@ func (o *OrbitKeys) Init() error {
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
 			}
-			
+
 			// Don't expose internal error details in production
 			errMsg := "Internal Server Error"
 			if code != fiber.StatusInternalServerError {
 				errMsg = err.Error()
 			}
-			
+
 			return c.Status(code).JSON(fiber.Map{
 				"error": errMsg,
 			})
@@ -101,7 +101,7 @@ func (o *OrbitKeys) Init() error {
 	app.Use(recover.New())
 	app.Use(logger.New())
 	app.Use(cors.New())
-	
+
 	// Add rate limiting for all routes
 	app.Use(middleware.CreateRateLimiter(100, 1*time.Minute))
 
@@ -111,7 +111,7 @@ func (o *OrbitKeys) Init() error {
 	// Public endpoints (authenticated with root API key)
 	publicGroup := apiGroup.Group("")
 	publicGroup.Use(middleware.RootAPIKeyAuth(o.Config))
-	
+
 	// Add additional rate limiting for authentication endpoints
 	authRateLimiter := middleware.CreateRateLimiter(30, 5*time.Minute)
 	publicGroup.Use(authRateLimiter)
@@ -125,7 +125,7 @@ func (o *OrbitKeys) Init() error {
 	roleGroup.Use(middleware.APIKeyAuth("roles:read"))
 	roleGroup.Get("/", handlers.GetRoles)
 	roleGroup.Get("/:id", handlers.GetRole)
-	
+
 	// Protected by stronger permissions
 	roleGroup.Post("/", middleware.RequirePermission("roles:create"), handlers.CreateRole)
 	roleGroup.Put("/:id", middleware.RequirePermission("roles:update"), handlers.UpdateRole)
@@ -136,10 +136,11 @@ func (o *OrbitKeys) Init() error {
 	keyGroup.Use(middleware.APIKeyAuth("keys:read"))
 	keyGroup.Get("/", handlers.GetAPIKeys)
 	keyGroup.Get("/:id", handlers.GetAPIKey)
-	
+
 	// Protected by stronger permissions
 	keyGroup.Post("/", middleware.RequirePermission("keys:create"), handlers.CreateAPIKey)
 	keyGroup.Put("/:id/expiration", middleware.RequirePermission("keys:update"), handlers.UpdateAPIKeyExpiration)
+	keyGroup.Put("/:id/custom-data", middleware.RequirePermission("keys:update"), handlers.UpdateAPIKeyCustomData)
 	keyGroup.Delete("/:id", middleware.RequirePermission("keys:delete"), handlers.DeleteAPIKey)
 
 	o.app = app
@@ -152,7 +153,7 @@ func (o *OrbitKeys) Start(address string) error {
 	if o.app == nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Server not initialized. Call Init() first")
 	}
-	
+
 	log.Printf("OrbitKeys service starting on %s", address)
 	log.Printf("Root API Key: %s", o.Config.RootAPIKey)
 	return o.app.Listen(address)
@@ -165,8 +166,8 @@ func (o *OrbitKeys) Shutdown() error {
 			return err
 		}
 	}
-	
+
 	database.CloseDB()
 	log.Println("OrbitKeys service shutdown complete")
 	return nil
-} 
+}
