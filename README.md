@@ -2,6 +2,19 @@
 
 OrbitKeys is a comprehensive API key management system for Go applications using the Fiber web framework. It provides a complete solution for secure API key generation, role-based permissions, and middleware integration with robust security features.
 
+## Why OrbitKeys Exists
+
+We built OrbitKeys while struggling with the same challenges many Go developers face when implementing authentication systems. After wrestling with API key management in several projects, it became clear that this common need shouldn't require everyone to reinvent the wheel.
+
+### The Problems We're Trying to Help With
+
+- **Authentication Complexity**: Building proper authentication from scratch is time-consuming and easy to get wrong
+- **Security Concerns**: Implementing all the security best practices takes significant research and experience
+- **Permission Headaches**: As applications grow, managing who can do what quickly becomes complicated
+- **Maintenance Burden**: Keeping authentication systems updated and secure requires ongoing attention
+
+OrbitKeys is simply an attempt to share a solution to these common challenges. It's designed to help developers focus on building their unique application features instead of spending time on authentication infrastructure that's needed in almost every API project.
+
 ## Features
 
 - **Secure API Key Management**
