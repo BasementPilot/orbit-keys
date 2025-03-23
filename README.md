@@ -223,7 +223,7 @@ curl -X POST http://localhost:3000/api/roles \
   }'
 ```
 
-### Creating an API Key
+### Creating an API Key with Custom Data
 
 ```bash
 curl -X POST http://localhost:3000/api/keys \
@@ -231,9 +231,9 @@ curl -X POST http://localhost:3000/api/keys \
   -H "Content-Type: application/json" \
   -d '{
     "role_id": 1,
-    "description": "API key for Example App",
+    "description": "API key for Mobile App",
     "expires_in": 30,
-    "custom_data": "{\"user_id\": 123, \"application\": \"mobile-app\"}"
+    "custom_data": "{\"user_id\": 123, \"username\": \"johndoe\", \"app_version\": \"1.0.0\", \"device\": \"Android\"}"
   }'
 ```
 
@@ -244,14 +244,98 @@ curl -X PUT http://localhost:3000/api/keys/1/custom-data \
   -H "X-API-Key: orbitkey_your_api_key_with_keys_update_permission" \
   -H "Content-Type: application/json" \
   -d '{
-    "custom_data": "{\"user_id\": 123, \"application\": \"mobile-app\", \"version\": \"2.0\"}"
+    "custom_data": "{\"user_id\": 123, \"username\": \"johndoe\", \"app_version\": \"2.0.0\", \"device\": \"Android\", \"last_login\": \"2023-06-15T14:30:00Z\"}"
   }'
 ```
 
-### Using an API Key
+### Retrieving an API Key with Custom Data
 
 ```bash
-curl http://localhost:3000/api/protected-resource \
+curl -X GET http://localhost:3000/api/keys/1 \
+  -H "X-API-Key: orbitkey_your_api_key_with_keys_read_permission"
+```
+
+Response:
+```json
+{
+  "id": 1,
+  "key": "orbitkey_AbCdEfGhIjKlMnOpQrStUvWxYz",
+  "role_id": 1,
+  "role": {
+    "id": 1,
+    "name": "basic-user",
+    "description": "Basic user with read-only access",
+    "permissions": "users:read,products:read",
+    "created_at": "2023-06-15T10:00:00Z",
+    "updated_at": "2023-06-15T10:00:00Z"
+  },
+  "description": "API key for Mobile App",
+  "custom_data": "{\"user_id\": 123, \"username\": \"johndoe\", \"app_version\": \"2.0.0\", \"device\": \"Android\", \"last_login\": \"2023-06-15T14:30:00Z\"}",
+  "created_at": "2023-06-15T10:30:00Z",
+  "last_used_at": "2023-06-15T15:45:00Z",
+  "expires_at": "2023-07-15T10:30:00Z"
+}
+```
+
+### Using API Key Custom Data in Your Application
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+    
+    "github.com/gofiber/fiber/v2"
+    "github.com/BasementPilot/orbit-keys/internal/middleware"
+    "github.com/BasementPilot/orbit-keys/internal/models"
+)
+
+func main() {
+    app := fiber.New()
+    
+    // Protected route that uses API key custom data
+    app.Get("/user-info", middleware.APIKeyAuth("users:read"), func(c *fiber.Ctx) error {
+        // The API key is available in the context after authentication
+        apiKey, ok := c.Locals("apiKey").(models.APIKey)
+        if !ok {
+            return c.Status(500).JSON(fiber.Map{"error": "API key not found in context"})
+        }
+        
+        // Parse the custom data to access user-specific information
+        customData, err := apiKey.GetCustomData()
+        if err != nil {
+            return c.Status(500).JSON(fiber.Map{"error": "Invalid custom data format"})
+        }
+        
+        // Use the custom data in your application logic
+        if customData != nil {
+            userID, hasUserID := customData["user_id"]
+            username, hasUsername := customData["username"]
+            
+            if hasUserID && hasUsername {
+                // Use the user information to customize the response
+                return c.JSON(fiber.Map{
+                    "message": fmt.Sprintf("Hello, %v (ID: %v)!", username, userID),
+                    "user_data": customData,
+                })
+            }
+        }
+        
+        return c.JSON(fiber.Map{
+            "message": "Authenticated but no user data available",
+        })
+    })
+    
+    app.Listen(":3000")
+}
+```
+
+### Using an API Key for Authentication
+
+```bash
+curl http://localhost:3000/user-info \
   -H "X-API-Key: orbitkey_your_api_key"
 ```
 

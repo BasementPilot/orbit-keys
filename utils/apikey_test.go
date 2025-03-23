@@ -35,7 +35,7 @@ func TestGenerateAPIKey(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected success when key length is too short (should use default)")
 		}
-		
+
 		// Check that default length was applied
 		expectedMinLength := len(KeyPrefix) + (DefaultKeyLength*4+2)/3
 		if len(key) < expectedMinLength {
@@ -160,16 +160,16 @@ func TestIsRootAPIKey(t *testing.T) {
 	t.Run("Timing attack resistance", func(t *testing.T) {
 		rootKey := KeyPrefix + "test_root_key"
 		similarKey := KeyPrefix + "test_root_key_extra"
-		
+
 		// This test simply verifies we're using constant-time comparison
 		start := time.Now()
 		IsRootAPIKey(rootKey, rootKey)
 		exactMatch := time.Since(start)
-		
+
 		start = time.Now()
 		IsRootAPIKey(similarKey, rootKey)
 		similarMatch := time.Since(start)
-		
+
 		// The timing should be similar regardless of match
 		// This is not a perfect test, but gives us some confidence
 		// In a real timing attack test, we'd run thousands of iterations
@@ -186,9 +186,10 @@ func TestCreateAPIKey(t *testing.T) {
 	t.Run("Successful creation", func(t *testing.T) {
 		roleID := uint(1)
 		description := "Test API Key"
+		customData := "{\"user_id\": 123, \"username\": \"testuser\"}"
 		duration := 24 * time.Hour
-		
-		apiKey, err := CreateAPIKey(roleID, description, &duration)
+
+		apiKey, err := CreateAPIKey(roleID, description, customData, &duration)
 		if err != nil {
 			t.Fatalf("CreateAPIKey failed with error: %v", err)
 		}
@@ -198,12 +199,15 @@ func TestCreateAPIKey(t *testing.T) {
 			t.Errorf("Expected key to have prefix %q, got %q", KeyPrefix, apiKey.Key)
 		}
 
-		// Check that role ID and description were set
+		// Check that role ID, description, and custom data were set
 		if apiKey.RoleID != roleID {
 			t.Errorf("Expected RoleID to be %d, got %d", roleID, apiKey.RoleID)
 		}
 		if apiKey.Description != description {
 			t.Errorf("Expected Description to be %q, got %q", description, apiKey.Description)
+		}
+		if apiKey.CustomData != customData {
+			t.Errorf("Expected CustomData to be %q, got %q", customData, apiKey.CustomData)
 		}
 
 		// Check that expiration was set
@@ -214,7 +218,7 @@ func TestCreateAPIKey(t *testing.T) {
 			expectedExpiry := time.Now().Add(duration)
 			diff := apiKey.ExpiresAt.Sub(expectedExpiry)
 			if diff < -time.Second || diff > time.Second {
-				t.Errorf("Expected ExpiresAt to be around %v, got %v (diff: %v)", 
+				t.Errorf("Expected ExpiresAt to be around %v, got %v (diff: %v)",
 					expectedExpiry, *apiKey.ExpiresAt, diff)
 			}
 		}
@@ -224,9 +228,10 @@ func TestCreateAPIKey(t *testing.T) {
 	t.Run("Invalid role ID", func(t *testing.T) {
 		roleID := uint(0) // Invalid role ID
 		description := "Test API Key"
+		customData := ""
 		duration := 24 * time.Hour
-		
-		_, err := CreateAPIKey(roleID, description, &duration)
+
+		_, err := CreateAPIKey(roleID, description, customData, &duration)
 		if err == nil {
 			t.Error("Expected error for role ID 0")
 		}
@@ -236,8 +241,9 @@ func TestCreateAPIKey(t *testing.T) {
 	t.Run("No expiration", func(t *testing.T) {
 		roleID := uint(1)
 		description := "Test API Key without expiration"
-		
-		apiKey, err := CreateAPIKey(roleID, description, nil)
+		customData := "{\"user_id\": 456}"
+
+		apiKey, err := CreateAPIKey(roleID, description, customData, nil)
 		if err != nil {
 			t.Fatalf("CreateAPIKey failed with error: %v", err)
 		}
@@ -245,8 +251,29 @@ func TestCreateAPIKey(t *testing.T) {
 		if apiKey.ExpiresAt != nil {
 			t.Errorf("Expected ExpiresAt to be nil, got %v", *apiKey.ExpiresAt)
 		}
+
+		if apiKey.CustomData != customData {
+			t.Errorf("Expected CustomData to be %q, got %q", customData, apiKey.CustomData)
+		}
+	})
+
+	// Test key creation with empty custom data
+	t.Run("Empty custom data", func(t *testing.T) {
+		roleID := uint(1)
+		description := "Test API Key with empty custom data"
+		customData := ""
+		duration := 24 * time.Hour
+
+		apiKey, err := CreateAPIKey(roleID, description, customData, &duration)
+		if err != nil {
+			t.Fatalf("CreateAPIKey failed with error: %v", err)
+		}
+
+		if apiKey.CustomData != "" {
+			t.Errorf("Expected CustomData to be empty, got %q", apiKey.CustomData)
+		}
 	})
 }
 
 // Additional tests for any added security features (like key rotation, expiry, etc.)
-// Add more tests as features are developed 
+// Add more tests as features are developed
