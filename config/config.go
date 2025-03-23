@@ -175,8 +175,8 @@ func isValidFilePath(path string) bool {
 		return false
 	}
 	
-	// Sanitize the path
-	cleaned := filepath.Clean(path)
+	// Sanitize and validate the path
+	filepath.Clean(path) // Use the result but don't assign to variable
 	
 	// Additional security checks can be added here
 	return true

@@ -5,10 +5,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 	orbitkeys "github.com/BasementPilot/orbit-keys"
+	"github.com/BasementPilot/orbit-keys/config"
+	"github.com/BasementPilot/orbit-keys/internal/middleware"
 )
 
 func main() {
@@ -17,22 +20,44 @@ func main() {
 		log.Println("No .env file found, using environment variables")
 	}
 
-	// Initialize OrbitKeys
-	ok, err := orbitkeys.New()
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	
+	// Initialize OrbitKeys with config
+	ok, err := orbitkeys.New(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize OrbitKeys: %v", err)
 	}
-	defer ok.Close()
+	
+	// Initialize OrbitKeys service
+	if err := ok.Init(); err != nil {
+		log.Fatalf("Failed to initialize service: %v", err)
+	}
+	
+	// Ensure proper shutdown when done
+	defer ok.Shutdown()
 
-	// Create a Fiber app with OrbitKeys
-	app := ok.App // Use the app from OrbitKeys or create your own
+	// Create our own Fiber app for custom routes
+	app := fiber.New()
+	
+	// Add basic middleware
+	app.Use(func(c *fiber.Ctx) error {
+		c.Set("X-Powered-By", "OrbitKeys Example")
+		return c.Next()
+	})
+	
+	// Add rate limiting for all routes
+	app.Use(middleware.CreateRateLimiter(100, 1*time.Minute))
 
 	// Example protected routes
 	api := app.Group("/api")
 
 	// Protected routes with different permission requirements
 	users := api.Group("/users")
-	users.Use(ok.GetMiddleware("users:read")) // Require users:read permission
+	users.Use(middleware.APIKeyAuth("users:read")) // Require users:read permission
 	users.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "This is a protected users endpoint",
@@ -41,7 +66,7 @@ func main() {
 	})
 
 	products := api.Group("/products")
-	products.Use(ok.GetMiddleware("products:read")) // Require products:read permission
+	products.Use(middleware.APIKeyAuth("products:read")) // Require products:read permission
 	products.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message":  "This is a protected products endpoint",
@@ -51,8 +76,8 @@ func main() {
 
 	// Admin route with multiple permissions (checked after authentication)
 	admin := api.Group("/admin")
-	admin.Use(ok.GetMiddleware("")) // Authenticate API key without checking permissions yet
-	admin.Use(ok.RequirePermission("admin:*")) // Then check for admin:* permission
+	admin.Use(middleware.APIKeyAuth("")) // Authenticate API key without checking permissions yet
+	admin.Use(middleware.RequirePermission("admin:*")) // Then check for admin:* permission
 	admin.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "This is a protected admin endpoint",

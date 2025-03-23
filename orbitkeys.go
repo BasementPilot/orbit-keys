@@ -170,4 +170,3 @@ func (o *OrbitKeys) Shutdown() error {
 	log.Println("OrbitKeys service shutdown complete")
 	return nil
 } 
-} 
