@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv" // Added strconv
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -196,10 +197,12 @@ func parseEnvToInt(key string, defaultValue int) int {
 	if valueStr == "" {
 		return defaultValue
 	}
-	valueInt, err := fmt.Sscan(valueStr, new(int))
-	if err != nil || len(valueInt) == 0 {
-		log.Printf("Warning: Could not parse %s as int, using default value %d. Error: %v", key, defaultValue, err)
+	
+	// Use strconv.Atoi to parse the string to an int
+	valueInt, err := strconv.Atoi(valueStr)
+	if err != nil {
+		log.Printf("Warning: Could not parse environment variable %s (value: '%s') as int, using default value %d. Error: %v", key, valueStr, defaultValue, err)
 		return defaultValue
 	}
-	return valueInt[0].(int)
+	return valueInt
 }
