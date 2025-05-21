@@ -6,9 +6,9 @@ package middleware
 import (
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
+	"github.com/patrickmn/go-cache"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/BasementPilot/orbit-keys/config"
@@ -26,10 +26,9 @@ const APIKeyHeader = "X-API-Key"
 // This header is used for administrative operations that require elevated privileges.
 const RootAPIKeyHeader = "X-Root-API-Key"
 
-// authAttempts tracks failed authentication attempts by IP address
+// authCache tracks failed authentication attempts by IP address
 var (
-	authAttempts     = make(map[string]int)
-	authAttemptsMux  sync.RWMutex
+	authCache        = cache.New(15*time.Minute, 10*time.Minute)
 	attemptThreshold = 10 // Max failed attempts before rate limiting
 )
 
@@ -42,7 +41,7 @@ var (
 //
 // When authentication succeeds, the API key and role are stored in the request context
 // for use by subsequent handlers.
-func APIKeyAuth(requiredPermission string) fiber.Handler {
+func APIKeyAuth(cfg *config.Config, requiredPermission string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Set a timeout for the authentication process
 		done := make(chan bool, 1)
@@ -54,11 +53,12 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 			
 			// Check for rate limiting if client has too many failed attempts
 			ip := c.IP()
-			authAttemptsMux.RLock()
-			attempts, exists := authAttempts[ip]
-			authAttemptsMux.RUnlock()
+			var attempts int
+			if x, found := authCache.Get(ip); found {
+				attempts = x.(int)
+			}
 			
-			if exists && attempts >= attemptThreshold {
+			if attempts >= attemptThreshold {
 				err = c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 					"error": "Too many failed authentication attempts, please try again later",
 				})
@@ -126,11 +126,7 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 			}
 
 			// Reset failed attempt counter on successful authentication
-			if exists {
-				authAttemptsMux.Lock()
-				delete(authAttempts, ip)
-				authAttemptsMux.Unlock()
-			}
+			authCache.Delete(ip)
 
 			// Update the last used timestamp
 			go func(db *gorm.DB, key *models.APIKey) {
@@ -151,7 +147,7 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 		select {
 		case <-done:
 			return err
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(time.Duration(cfg.AuthTimeoutSeconds) * time.Second):
 			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
 				"error": "Authentication timed out",
 			})
@@ -176,11 +172,12 @@ func RootAPIKeyAuth(cfg *config.Config) fiber.Handler {
 			
 			// Check for rate limiting if client has too many failed attempts
 			ip := c.IP()
-			authAttemptsMux.RLock()
-			attempts, exists := authAttempts[ip]
-			authAttemptsMux.RUnlock()
+			var attempts int
+			if x, found := authCache.Get(ip); found {
+				attempts = x.(int)
+			}
 			
-			if exists && attempts >= attemptThreshold {
+			if attempts >= attemptThreshold {
 				err = c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 					"error": "Too many failed authentication attempts, please try again later",
 				})
@@ -213,11 +210,7 @@ func RootAPIKeyAuth(cfg *config.Config) fiber.Handler {
 			}
 
 			// Reset failed attempt counter on successful authentication
-			if exists {
-				authAttemptsMux.Lock()
-				delete(authAttempts, ip)
-				authAttemptsMux.Unlock()
-			}
+			authCache.Delete(ip)
 
 			err = c.Next()
 			done <- true
@@ -227,7 +220,7 @@ func RootAPIKeyAuth(cfg *config.Config) fiber.Handler {
 		select {
 		case <-done:
 			return err
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(time.Duration(cfg.AuthTimeoutSeconds) * time.Second):
 			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
 				"error": "Authentication timed out",
 			})
@@ -287,11 +280,10 @@ func CreateRateLimiter(max int, expiration time.Duration) fiber.Handler {
 // trackFailedAttempt increments the failed authentication attempts counter for an IP address.
 // This is used to implement progressive rate limiting for potential brute force attacks.
 func trackFailedAttempt(ip string) {
-	authAttemptsMux.Lock()
-	defer authAttemptsMux.Unlock()
-	
-	authAttempts[ip]++
-	
-	// Clean up old attempts periodically to prevent memory leaks
-	// In production, this should be handled by a dedicated goroutine or cache with TTL
+	var attempts int
+	if x, found := authCache.Get(ip); found {
+		attempts = x.(int)
+	}
+	attempts++
+	authCache.Set(ip, attempts, cache.DefaultExpiration)
 } 

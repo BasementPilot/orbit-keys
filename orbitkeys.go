@@ -122,7 +122,7 @@ func (o *OrbitKeys) Init() error {
 
 	// Role management endpoints
 	roleGroup := apiGroup.Group("/roles")
-	roleGroup.Use(middleware.APIKeyAuth("roles:read"))
+	roleGroup.Use(middleware.APIKeyAuth(o.Config, "roles:read"))
 	roleGroup.Get("/", handlers.GetRoles)
 	roleGroup.Get("/:id", handlers.GetRole)
 
@@ -133,7 +133,7 @@ func (o *OrbitKeys) Init() error {
 
 	// API key management endpoints
 	keyGroup := apiGroup.Group("/keys")
-	keyGroup.Use(middleware.APIKeyAuth("keys:read"))
+	keyGroup.Use(middleware.APIKeyAuth(o.Config, "keys:read"))
 	keyGroup.Get("/", handlers.GetAPIKeys)
 	keyGroup.Get("/:id", handlers.GetAPIKey)
 

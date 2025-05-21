@@ -6,6 +6,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -62,6 +63,7 @@ func (r *Role) HasPermission(permission string) bool {
 // If the permission is invalid or already exists, no changes are made.
 func (r *Role) AddPermission(permission string) {
 	if !ValidatePermissionFormat(permission) {
+		log.Printf("Warning: Attempted to add invalid permission format '%s' to role '%s'. Permission not added.", permission, r.Name)
 		return
 	}
 
