@@ -480,7 +480,7 @@ func TestParseEnvToInt(t *testing.T) {
 				}
 			}
 
-			result := parseEnvToInt(tc.envKey, tc.defaultValue)
+			result := parseEnvToInt(tc.envKey, tc.defaultValue); // Re-typed and added semicolon
 			if result != tc.expectedValue {
 				t.Errorf("parseEnvToInt(%q, %d) with env value %q: expected %d, got %d",
 					tc.envKey, tc.defaultValue, tc.envValue, tc.expectedValue, result)
