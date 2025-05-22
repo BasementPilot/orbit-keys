@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/BasementPilot/orbit-keys/config"
 	"github.com/BasementPilot/orbit-keys/internal/database"
 	"github.com/BasementPilot/orbit-keys/internal/models"
 	"github.com/BasementPilot/orbit-keys/utils"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"gorm.io/gorm"
 )
 
@@ -44,118 +44,90 @@ var (
 // for use by subsequent handlers.
 func APIKeyAuth(requiredPermission string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		// Set a timeout for the authentication process
-		done := make(chan bool, 1)
-		var err error
-		
-		go func() {
-			// Get the API key from the header
-			apiKey := c.Get(APIKeyHeader)
-			
-			// Check for rate limiting if client has too many failed attempts
-			ip := c.IP()
-			authAttemptsMux.RLock()
-			attempts, exists := authAttempts[ip]
-			authAttemptsMux.RUnlock()
-			
-			if exists && attempts >= attemptThreshold {
-				err = c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-					"error": "Too many failed authentication attempts, please try again later",
-				})
-				done <- true
-				return
-			}
-			
-			if apiKey == "" {
-				// Track failed authentication attempt
-				trackFailedAttempt(ip)
-				
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "API key is required",
-				})
-				done <- true
-				return
-			}
+		apiKey := c.Get(APIKeyHeader)
 
-			// Check if it's a valid API key format
-			if !utils.ValidateAPIKey(apiKey) {
-				// Track failed authentication attempt
-				trackFailedAttempt(ip)
-				
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "Invalid API key format",
-				})
-				done <- true
-				return
-			}
+		// Check for rate limiting if client has too many failed attempts
+		ip := c.IP()
+		authAttemptsMux.RLock()
+		attempts, exists := authAttempts[ip]
+		authAttemptsMux.RUnlock()
 
-			// Find the API key in the database
-			var key models.APIKey
-			db := database.GetDB()
-			if err := db.Preload("Role").Where("key = ?", apiKey).First(&key).Error; err != nil {
-				// Track failed authentication attempt
-				trackFailedAttempt(ip)
-				
-				// Use generic error message to avoid information disclosure
-				if jsonErr := c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "Authentication failed",
-				}); jsonErr != nil {
-					log.Printf("Error sending JSON response: %v", jsonErr)
-				}
-				done <- true
-				return
-			}
-
-			// Check if the API key has expired
-			if key.IsExpired() {
-				// We don't track this as a failed attempt since it's a valid key
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "API key has expired",
-				})
-				done <- true
-				return
-			}
-
-			// Check if the API key has the required permission
-			if requiredPermission != "" && !key.Role.HasPermission(requiredPermission) {
-				err = c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-					"error": "Insufficient permissions",
-				})
-				done <- true
-				return
-			}
-
-			// Reset failed attempt counter on successful authentication
-			if exists {
-				authAttemptsMux.Lock()
-				delete(authAttempts, ip)
-				authAttemptsMux.Unlock()
-			}
-
-			// Update the last used timestamp
-			go func(db *gorm.DB, key *models.APIKey) {
-				if err := key.UpdateLastUsed(db); err != nil {
-					log.Printf("Failed to update LastUsed timestamp: %v", err)
-				}
-			}(db, &key)
-
-			// Store API key and role information in context for later use
-			c.Locals("apiKey", key)
-			c.Locals("role", key.Role)
-
-			err = c.Next()
-			done <- true
-		}()
-		
-		// Set authentication timeout (500ms should be more than enough)
-		select {
-		case <-done:
-			return err
-		case <-time.After(500 * time.Millisecond):
-			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
-				"error": "Authentication timed out",
+		if exists && attempts >= attemptThreshold {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "Too many failed authentication attempts, please try again later",
 			})
 		}
+
+		if apiKey == "" {
+			// Track failed authentication attempt
+			trackFailedAttempt(ip)
+
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "API key is required",
+			})
+		}
+
+		// Check if it's a valid API key format
+		if !utils.ValidateAPIKey(apiKey) {
+			// Track failed authentication attempt
+			trackFailedAttempt(ip)
+
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid API key format",
+			})
+		}
+
+		// Find the API key in the database
+		var key models.APIKey
+		db := database.GetDB()
+		if err := db.Preload("Role").Where("key = ?", apiKey).First(&key).Error; err != nil {
+			// Track failed authentication attempt
+			trackFailedAttempt(ip)
+
+			// Use generic error message to avoid information disclosure
+			if jsonErr := c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Authentication failed",
+			}); jsonErr != nil {
+				log.Printf("Error sending JSON response: %v", jsonErr)
+				return jsonErr
+			}
+			return nil
+		}
+
+		// Check if the API key has expired
+		if key.IsExpired() {
+			// We don't track this as a failed attempt since it's a valid key
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "API key has expired",
+			})
+		}
+
+		// Check if the API key has the required permission
+		if requiredPermission != "" && !key.Role.HasPermission(requiredPermission) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Insufficient permissions",
+			})
+		}
+
+		// Reset failed attempt counter on successful authentication
+		if exists {
+			authAttemptsMux.Lock()
+			delete(authAttempts, ip)
+			authAttemptsMux.Unlock()
+		}
+
+		// Update the last used timestamp asynchronously
+		go func(db *gorm.DB, key *models.APIKey) {
+			if err := key.UpdateLastUsed(db); err != nil {
+				log.Printf("Failed to update LastUsed timestamp: %v", err)
+			}
+		}(db, &key)
+
+		// Store API key and role information in context for later use
+		c.Locals("apiKey", key)
+		c.Locals("role", key.Role)
+
+		return c.Next()
 	}
 }
 
@@ -166,72 +138,48 @@ func APIKeyAuth(requiredPermission string) fiber.Handler {
 // The cfg parameter provides the configuration containing the root API key to check against.
 func RootAPIKeyAuth(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		// Set a timeout for the authentication process
-		done := make(chan bool, 1)
-		var err error
-		
-		go func() {
-			// Get the root API key from the header
-			rootKey := c.Get(RootAPIKeyHeader)
-			
-			// Check for rate limiting if client has too many failed attempts
-			ip := c.IP()
-			authAttemptsMux.RLock()
-			attempts, exists := authAttempts[ip]
-			authAttemptsMux.RUnlock()
-			
-			if exists && attempts >= attemptThreshold {
-				err = c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
-					"error": "Too many failed authentication attempts, please try again later",
-				})
-				done <- true
-				return
-			}
-			
-			if rootKey == "" {
-				// Track failed authentication attempt
-				trackFailedAttempt(ip)
-				
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "Root API key is required for admin operations",
-				})
-				done <- true
-				return
-			}
+		rootKey := c.Get(RootAPIKeyHeader)
 
-			// Check if it matches the configured root API key
-			if !utils.IsRootAPIKey(rootKey, cfg.RootAPIKey) {
-				// Track failed authentication attempt
-				trackFailedAttempt(ip)
-				
-				// Use generic error message to avoid information disclosure
-				err = c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-					"error": "Authentication failed",
-				})
-				done <- true
-				return
-			}
+		// Check for rate limiting if client has too many failed attempts
+		ip := c.IP()
+		authAttemptsMux.RLock()
+		attempts, exists := authAttempts[ip]
+		authAttemptsMux.RUnlock()
 
-			// Reset failed attempt counter on successful authentication
-			if exists {
-				authAttemptsMux.Lock()
-				delete(authAttempts, ip)
-				authAttemptsMux.Unlock()
-			}
-
-			err = c.Next()
-			done <- true
-		}()
-		
-		// Set authentication timeout (500ms should be more than enough)
-		select {
-		case <-done:
-			return err
-		case <-time.After(500 * time.Millisecond):
-			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
-				"error": "Authentication timed out",
+		if exists && attempts >= attemptThreshold {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "Too many failed authentication attempts, please try again later",
 			})
 		}
+
+		if rootKey == "" {
+			// Track failed authentication attempt
+			trackFailedAttempt(ip)
+
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Root API key is required for admin operations",
+			})
+		}
+
+		// Check if it matches the configured root API key
+		if !utils.IsRootAPIKey(rootKey, cfg.RootAPIKey) {
+			// Track failed authentication attempt
+			trackFailedAttempt(ip)
+
+			// Use generic error message to avoid information disclosure
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Authentication failed",
+			})
+		}
+
+		// Reset failed attempt counter on successful authentication
+		if exists {
+			authAttemptsMux.Lock()
+			delete(authAttempts, ip)
+			authAttemptsMux.Unlock()
+		}
+
+		return c.Next()
 	}
 }
 
@@ -289,9 +237,9 @@ func CreateRateLimiter(max int, expiration time.Duration) fiber.Handler {
 func trackFailedAttempt(ip string) {
 	authAttemptsMux.Lock()
 	defer authAttemptsMux.Unlock()
-	
+
 	authAttempts[ip]++
-	
+
 	// Clean up old attempts periodically to prevent memory leaks
 	// In production, this should be handled by a dedicated goroutine or cache with TTL
-} 
+}
