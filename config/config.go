@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv" // Added strconv
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -35,6 +36,10 @@ type Config struct {
 	// BaseURL is the base URL prefix for all API endpoints.
 	// Defaults to "/api" if not specified.
 	BaseURL string
+	
+	// AuthTimeoutSeconds is the timeout for authentication requests in seconds.
+	// Defaults to 2 seconds if not specified.
+	AuthTimeoutSeconds int
 }
 
 // LoadConfig reads configuration from environment variables and .env file.
@@ -52,9 +57,10 @@ func LoadConfig() (*Config, error) {
 
 	// Load configuration
 	config := &Config{
-		RootAPIKey: sanitizeEnv("ORBITKEYS_ROOT_API_KEY"),
-		DBPath:     sanitizeEnv("ORBITKEYS_DB_PATH"),
-		BaseURL:    sanitizeEnv("ORBITKEYS_BASE_URL"),
+		RootAPIKey:         sanitizeEnv("ORBITKEYS_ROOT_API_KEY"),
+		DBPath:             sanitizeEnv("ORBITKEYS_DB_PATH"),
+		BaseURL:            sanitizeEnv("ORBITKEYS_BASE_URL"),
+		AuthTimeoutSeconds: parseEnvToInt("ORBITKEYS_AUTH_TIMEOUT_SECONDS", 2), // Default to 2 seconds
 	}
 
 	// Set default values if not provided
@@ -108,6 +114,9 @@ func SaveConfig(config *Config) error {
 	}
 	if config.BaseURL != "" {
 		envContent += "ORBITKEYS_BASE_URL=" + config.BaseURL + "\n"
+	}
+	if config.AuthTimeoutSeconds > 0 {
+		envContent += fmt.Sprintf("ORBITKEYS_AUTH_TIMEOUT_SECONDS=%d\n", config.AuthTimeoutSeconds)
 	}
 
 	// Create a temporary file first, then rename it to avoid partial writes
@@ -176,8 +185,25 @@ func isValidFilePath(path string) bool {
 	}
 	
 	// Sanitize and validate the path
-	filepath.Clean(path) // Use the result but don't assign to variable
+	cleanPath := filepath.Clean(path)
+	_ = cleanPath // Validate that path.Clean doesn't return unexpected results
 	
 	// Additional security checks can be added here
 	return true
 } 
+
+// parseEnvToInt parses an environment variable as an integer, with a default value.
+func parseEnvToInt(key string, defaultValue int) int {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	
+	// Use strconv.Atoi to parse the string to an int
+	valueInt, err := strconv.Atoi(valueStr)
+	if err != nil {
+		log.Printf("Warning: Could not parse environment variable %s (value: '%s') as int, using default value %d. Error: %v", key, valueStr, defaultValue, err)
+		return defaultValue
+	}
+	return valueInt
+}

@@ -59,7 +59,7 @@ func main() {
 
 	// Protected routes with different permission requirements
 	users := api.Group("/users")
-	users.Use(middleware.APIKeyAuth("users:read")) // Require users:read permission
+	users.Use(middleware.APIKeyAuth(cfg, "users:read")) // Require users:read permission
 	users.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "This is a protected users endpoint",
@@ -68,7 +68,7 @@ func main() {
 	})
 
 	products := api.Group("/products")
-	products.Use(middleware.APIKeyAuth("products:read")) // Require products:read permission
+	products.Use(middleware.APIKeyAuth(cfg, "products:read")) // Require products:read permission
 	products.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message":  "This is a protected products endpoint",
@@ -78,7 +78,7 @@ func main() {
 
 	// Example endpoint using custom data from API key
 	profile := api.Group("/profile")
-	profile.Use(middleware.APIKeyAuth("profile:read")) // Require profile:read permission
+	profile.Use(middleware.APIKeyAuth(cfg, "profile:read")) // Require profile:read permission
 	profile.Get("/", func(c *fiber.Ctx) error {
 		// Get the API key from the context
 		apiKey, ok := c.Locals("apiKey").(models.APIKey)
@@ -127,7 +127,7 @@ func main() {
 
 	// Admin route with multiple permissions (checked after authentication)
 	admin := api.Group("/admin")
-	admin.Use(middleware.APIKeyAuth(""))               // Authenticate API key without checking permissions yet
+	admin.Use(middleware.APIKeyAuth(cfg, ""))               // Authenticate API key without checking permissions yet
 	admin.Use(middleware.RequirePermission("admin:*")) // Then check for admin:* permission
 	admin.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
