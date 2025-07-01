@@ -47,7 +47,8 @@ func New(cfg *config.Config) (*OrbitKeys, error) {
 		}
 
 		cfg.RootAPIKey = rootKey
-		log.Printf("Generated new root API key: %s", rootKey)
+		// Do not log the actual root key to avoid credential exposure
+		log.Print("Generated new root API key")
 
 		// Save configuration
 		if err := config.SaveConfig(cfg); err != nil {
@@ -155,7 +156,8 @@ func (o *OrbitKeys) Start(address string) error {
 	}
 
 	log.Printf("OrbitKeys service starting on %s", address)
-	log.Printf("Root API Key: %s", o.Config.RootAPIKey)
+	// Avoid logging the root API key directly to prevent accidental exposure
+	log.Print("Root API Key is configured")
 	return o.app.Listen(address)
 }
 
